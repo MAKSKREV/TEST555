@@ -1,14 +1,19 @@
 import asyncio
 import logging
 import re
+import os
+from dotenv import load_dotenv
 from telethon import TelegramClient, events
 from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument, MessageMediaWebPage
 import aiohttp
 
+# Загрузка переменных окружения из .env файла
+load_dotenv()
+
 # --- КОНФИГУРАЦИЯ ---
-API_ID = 25316255
-API_HASH = "caacc56333e6d2445732ea75eddd56e5"
-PHONE = "+79686041007"
+API_ID = int(os.getenv("TELEGRAM_API_ID"))
+API_HASH = os.getenv("TELEGRAM_API_HASH")
+PHONE = os.getenv("TELEGRAM_PHONE")
 
 
 SOURCE_CHANNELS = [
@@ -25,8 +30,8 @@ SOURCE_CHANNELS = [
 DEST_CHANNEL = -1003780268513
 
 # OpenRouter API
-API_KEY = "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"
-MODEL_NAME = "meta-llama/llama-3-8b-instruct"
+API_KEY = os.getenv("OPENROUTER_API_KEY")
+MODEL_NAME = os.getenv("AI_MODEL_NAME", "meta-llama/llama-3-8b-instruct")
 
 SESSION_NAME = 'my_userbot_session'
 
