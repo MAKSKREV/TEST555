@@ -2,18 +2,30 @@ import asyncio
 import logging
 import re
 import os
-from dotenv import load_dotenv
 from telethon import TelegramClient, events
 from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument, MessageMediaWebPage
 import aiohttp
 
-# Загрузка переменных окружения из .env файла
-load_dotenv()
-
 # --- КОНФИГУРАЦИЯ ---
-API_ID = int(os.getenv("TELEGRAM_API_ID"))
+# Получаем переменные из окружения Railway
+API_ID = os.getenv("TELEGRAM_API_ID")
 API_HASH = os.getenv("TELEGRAM_API_HASH")
 PHONE = os.getenv("TELEGRAM_PHONE")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+# Проверка обязательных переменных
+if not all([API_ID, API_HASH, PHONE, OPENROUTER_API_KEY]):
+    raise ValueError(
+        "Отсутствуют обязательные переменные окружения!\n"
+        "Проверьте в панели Railway:\n"
+        "- TELEGRAM_API_ID\n"
+        "- TELEGRAM_API_HASH\n"
+        "- TELEGRAM_PHONE\n"
+        "- OPENROUTER_API_KEY"
+    )
+
+# Преобразуем API_ID в int после проверки
+API_ID = int(API_ID)
 
 
 SOURCE_CHANNELS = [
@@ -30,7 +42,6 @@ SOURCE_CHANNELS = [
 DEST_CHANNEL = -1003780268513
 
 # OpenRouter API
-API_KEY = os.getenv("OPENROUTER_API_KEY")
 MODEL_NAME = os.getenv("AI_MODEL_NAME", "meta-llama/llama-3-8b-instruct")
 
 SESSION_NAME = 'my_userbot_session'
@@ -80,7 +91,7 @@ async def process_news(text):
         return None
 
     headers = {
-        "Authorization": f"Bearer {API_KEY}",
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
         "HTTP-Referer": "https://github.com/my-userbot",
         "X-Title": "TG AI Digest"
