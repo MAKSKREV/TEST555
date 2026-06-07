@@ -2,38 +2,53 @@ import asyncio
 import logging
 import os
 from telethon import TelegramClient, events
-from telethon.sessions import StringSession
 from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument, MessageMediaWebPage
 import aiohttp
 
-# --- КОНФИГУРАЦИЯ ---
-API_ID = int(os.getenv("TELEGRAM_API_ID", "25316255"))
-API_HASH = os.getenv("TELEGRAM_API_HASH", "caacc56333e6d2445732ea75eddd56e5")
-PHONE = os.getenv("TELEGRAM_PHONE", "+79686041007")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-STRING_SESSION = os.getenv("STRING_SESSION")
+# --- КОНФИГУРАЦИЯ ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ RAILWAY ---
+API_ID = int(os.getenv("TELEGRAM_API_ID", "0"))
+API_HASH = os.getenv("TELEGRAM_API_HASH", "")
+PHONE = os.getenv("TELEGRAM_PHONE", "")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+SESSION_NAME = os.getenv("SESSION_NAME", "userbot_session")
 
-if not OPENROUTER_API_KEY:
-    print("⚠️ OPENROUTER_API_KEY не установлен! AI-обработка новостей работать не будет.")
+# Проверка обязательных переменных
+required_vars = {
+    "TELEGRAM_API_ID": API_ID,
+    "TELEGRAM_API_HASH": API_HASH,
+    "TELEGRAM_PHONE": PHONE,
+    "OPENROUTER_API_KEY": OPENROUTER_API_KEY,
+}
+missing = [name for name, value in required_vars.items() if not value]
+if missing:
+    raise RuntimeError(
+        f"❌ Не установлены обязательные переменные окружения: {', '.join(missing)}"
+    )
 
+# --- КАНАЛЫ ---
 SOURCE_CHANNELS = [
-    -1002571054985, -1001111641330, -1002544270889,
-    -1003969868108, -1001458367088, -1001161903924,
+    -1002571054985,
+    -1001111641330,
+    -1002544270889,
+    -1003969868108,
+    -1001458367088,
+    -1001161903924,
 ]
 DEST_CHANNEL = -1003780268513
-MODEL_NAME = os.getenv("AI_MODEL_NAME", "meta-llama/llama-3-8b-instruct")
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+MODEL_NAME = "meta-llama/llama-3-8b-instruct"
+
+# --- ЛОГИРОВАНИЕ ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
-# Автоматический выбор: StringSession для Railway / файл для локального ПК
-if STRING_SESSION:
-    logger.info("✅ Режим Railway: используется StringSession из окружения")
-    client = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
-else:
-    logger.info("✅ Режим ПК: используется локальный файл сессии")
-    client = TelegramClient('my_userbot_session', API_ID, API_HASH)
+# --- КЛИЕНТ TELETHON ---
+client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
 
+# Хранилище ID обработанных сообщений для защиты от дублей
 processed_ids = set()
 
 SYSTEM_PROMPT = """Ты редактор технического дайджеста про нейросети и кибербезопасность. Твоя задача — переписать новость в строгом формате.
@@ -67,65 +82,78 @@ SYSTEM_PROMPT = """Ты редактор технического дайджес
 
 НЕ пиши никаких вступлений типа "Вот анализ", "Конечно", "Вот готовый пост". Только сам пост в указанном формате."""
 
+
 async def process_news(text):
-    if not text or not OPENROUTER_API_KEY:
-        return text
+    """Отправляет текст на анализ AI через OpenRouter."""
+    if not text:
+        return None
 
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
         "HTTP-Referer": "https://github.com/my-userbot",
-        "X-Title": "TG AI Digest"
+        "X-Title": "TG AI Digest",
     }
 
     payload = {
         "model": MODEL_NAME,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": f"Обработай эту новость:\n\n{text}"}
+            {"role": "user", "content": f"Обработай эту новость:\n\n{text}"},
         ],
         "temperature": 0.3,
-        "max_tokens": 800
+        "max_tokens": 800,
     }
 
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 "https://openrouter.ai/api/v1/chat/completions",
-                json=payload, headers=headers
+                json=payload,
+                headers=headers,
             ) as response:
                 data = await response.json()
                 if response.status == 200:
-                    return data['choices'][0]['message']['content']
+                    return data["choices"][0]["message"]["content"]
                 else:
                     logger.error(f"AI Error {response.status}: {data}")
-                    return text
+                    return None
     except Exception as e:
-        logger.error(f"Connection error to AI: {e}")
-        return text
+        logger.error(f"Connection error: {e}")
+        return None
+
 
 @client.on(events.NewMessage(chats=SOURCE_CHANNELS))
 async def handler(event):
     message = event.message
+
+    # Защита от дублей
     msg_id = event.chat_id * 1000000 + message.id
     if msg_id in processed_ids:
+        logger.debug(f"Дубль сообщения {message.id}, пропускаем.")
         return
     processed_ids.add(msg_id)
+
     if len(processed_ids) > 1000:
         processed_ids.clear()
 
     logger.info(f"Новый пост ID: {message.id} из канала {event.chat_id}")
+
     original_text = message.text or ""
     media = message.media
+
+    # Проверка медиа (игнорируем WebPage)
     file_to_send = None
     if media and not isinstance(media, MessageMediaWebPage):
         if isinstance(media, (MessageMediaPhoto, MessageMediaDocument)):
             file_to_send = media
 
     final_text = original_text
+
     if original_text:
         logger.info("Анализ новости AI...")
         processed = await process_news(original_text)
+
         if processed:
             final_text = processed
             logger.info("Текст успешно оформлен.")
@@ -138,12 +166,14 @@ async def handler(event):
     except Exception as e:
         logger.error(f"Ошибка публикации: {e}")
 
+
 async def main():
     await client.start(phone=PHONE)
-    logger.info("🚀 Бот запущен. Ожидание новостей из IT и AI каналов...")
+    logger.info("✅ Бот запущен. Ожидание новостей из IT и AI каналов...")
     await client.run_until_disconnected()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
